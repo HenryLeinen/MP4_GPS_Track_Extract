@@ -123,6 +123,13 @@
                     <button id="fitRouteBtn" type="button" class="buttonGhost" onclick="fitCurrentTrackToMap()">Route maximieren</button>
                     <button id="fullscreenBtn" type="button" class="buttonGhost" onclick="toggleMapFullscreen()">Vollbild</button>
                 </div>
+                <div class="mapToolbarGroup">
+                    <label class="toggleWrap photoInputLabel" for="photoInput">
+                        <span>Fotos laden</span>
+                        <input id="photoInput" type="file" accept="image/*" multiple onchange="loadPhotos()">
+                    </label>
+                    <button type="button" class="buttonGhost" onclick="clearPhotoMarkers()">Fotos entfernen</button>
+                </div>
             </div>
 
             <div id="mapWrap">

@@ -8,6 +8,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 let layer = null;
 let stationLayer = null;
+let photoLayer = null;
 let lastDrawnPoints = [];
 let lastDrawnStations = [];
 let lastDrawnLabel = '';
@@ -878,6 +879,72 @@ function toggleDailyStations() {
     redrawCurrentTrack();
 }
 
+function clearPhotoMarkers() {
+    if (photoLayer) {
+        map.removeLayer(photoLayer);
+        photoLayer = null;
+    }
+    setInfo('Fotos entfernt.');
+}
+
+function placePhotoMarkers(photos) {
+    clearPhotoMarkers();
+    if (!Array.isArray(photos) || photos.length === 0) return;
+
+    photoLayer = L.layerGroup().addTo(map);
+
+    for (const photo of photos) {
+        if (typeof photo.lat !== 'number' || typeof photo.lon !== 'number') continue;
+
+        const icon = L.divIcon({
+            html: `<div class="photoMarker"><img src="${photo.thumbnail}" alt="${photo.filename}"></div>`,
+            className: '',
+            iconSize: [60, 60],
+            iconAnchor: [30, 30],
+            popupAnchor: [0, -34],
+        });
+
+        const marker = L.marker([photo.lat, photo.lon], { icon }).addTo(photoLayer);
+        marker.bindPopup(
+            `<div class="photoPopup">`
+            + `<img src="${photo.thumbnail}" alt="${photo.filename}">`
+            + `<div class="photoPopupName">${photo.filename}</div>`
+            + `</div>`
+        );
+    }
+}
+
+async function loadPhotos() {
+    const input = document.getElementById('photoInput');
+    if (!input?.files || input.files.length === 0) return;
+
+    const count = input.files.length;
+    setInfo(`Lade ${count} Foto${count === 1 ? '' : 's'} ...`);
+
+    const form = new FormData();
+    for (const file of input.files) {
+        form.append('files', file);
+    }
+
+    try {
+        const response = await fetch('/api/photos/load', { method: 'POST', body: form });
+        if (!response.ok) {
+            setInfo('Fehler beim Laden der Fotos: ' + await fetchTextOrDetail(response));
+            return;
+        }
+        const data = await response.json();
+        placePhotoMarkers(data.photos || []);
+        const placed = data.count || 0;
+        const skipped = data.skipped || 0;
+        const skippedNote = skipped > 0 ? ` (${skipped} ohne GPS-Daten uebersprungen)` : '';
+        setInfo(`${placed} Foto${placed === 1 ? '' : 's'} auf der Karte platziert${skippedNote}.`);
+    } catch (err) {
+        setInfo('Fehler beim Foto-Upload: ' + String(err));
+    } finally {
+        input.value = '';
+    }
+}
+
 document.addEventListener('fullscreenchange', () => {
     updateFullscreenButton();
     setTimeout(() => map.invalidateSize(), 50);
@@ -899,4 +966,6 @@ Object.assign(window, {
     toggleDailyStations,
     fitCurrentTrackToMap,
     toggleMapFullscreen,
+    loadPhotos,
+    clearPhotoMarkers,
 });

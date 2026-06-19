@@ -16,13 +16,16 @@ Run:
 
 from __future__ import annotations
 
+import base64
 import html
+import io
 import json
 import math
 import queue
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
 import xml.etree.ElementTree as ET
@@ -43,6 +46,12 @@ try:
 except ImportError:  # pragma: no cover - tkinter is optional on some systems
     tk = None
     filedialog = None
+
+try:
+    from PIL import Image, ImageOps
+    _HAS_PILLOW = True
+except ImportError:
+    _HAS_PILLOW = False
 
 from fastapi import FastAPI
 from fastapi import File
@@ -777,6 +786,85 @@ async def api_load_gpx(file: UploadFile = File(...)) -> JSONResponse:
             },
         }
     )
+
+
+def _extract_photo_gps(tmp_path: Path) -> tuple[float, float] | None:
+    """Return (lat, lon) for a photo file, or None if GPS is unavailable."""
+    cmd = ["exiftool", "-j", "-n", "-GPSLatitude", "-GPSLongitude", str(tmp_path)]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return None
+    if proc.returncode != 0 or not proc.stdout:
+        return None
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not data or not isinstance(data, list):
+        return None
+    record = data[0]
+    lat = to_float(record.get("GPSLatitude"))
+    lon = to_float(record.get("GPSLongitude"))
+    if lat is None or lon is None:
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    return lat, lon
+
+
+def _make_photo_thumbnail(image_bytes: bytes, max_px: int = 120) -> str:
+    """Return a base64 JPEG data URL at most max_px × max_px pixels."""
+    img = Image.open(io.BytesIO(image_bytes))
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
+    img.thumbnail((max_px, max_px), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=78)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+@app.post("/api/photos/load")
+async def api_photos_load(files: list[UploadFile] = File(...)) -> JSONResponse:
+    if not _HAS_PILLOW:
+        raise HTTPException(
+            status_code=501,
+            detail="Pillow ist nicht installiert. Bitte 'pip install Pillow' ausfuehren.",
+        )
+
+    results: list[dict[str, Any]] = []
+    skipped = 0
+
+    for upload in files:
+        content = await upload.read()
+        filename = upload.filename or "photo.jpg"
+        suffix = Path(filename).suffix.lower() or ".jpg"
+
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+
+        try:
+            gps = _extract_photo_gps(tmp_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+        if gps is None:
+            skipped += 1
+            continue
+
+        try:
+            thumbnail = _make_photo_thumbnail(content)
+        except Exception:
+            skipped += 1
+            continue
+
+        lat, lon = gps
+        results.append({"filename": filename, "lat": lat, "lon": lon, "thumbnail": thumbnail})
+
+    return JSONResponse({"photos": results, "count": len(results), "skipped": skipped})
 
 
 def parse_file_paths(files: str) -> list[Path]:
