@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vantrue GPS Track Extractor</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="shell">
+    <header class="hero">
+        <div>
+            <div class="heroBadge">MP4 zu GPX</div>
+            <h1>Vantrue GPS Track Extractor</h1>
+            <p>Scanne deine Fahrten, lade gespeicherte GPX-Dateien erneut und verwalte die letzten Ruhepunkte jedes Tages direkt auf der Karte.</p>
+        </div>
+        <div class="heroBadge">Leaflet + FastAPI</div>
+    </header>
+
+    <main class="layout">
+        <aside class="panel stack">
+            <section>
+                <h2 class="sectionTitle">Quellen und Export</h2>
+                <p class="sectionLead">MP4-Dateien scannen, Ausgabeziel festlegen und den GPX-Export mit Stationsnamen starten.</p>
+                __MESSAGE_BLOCK__
+            </section>
+
+            <section class="stack">
+                <form action="/scan" method="get" class="stack">
+                    <div class="fieldGroup">
+                        <div>
+                            <label for="directoryInput">MP4-Quellordner</label>
+                            <input id="directoryInput" name="directory" type="text" value="__DIRECTORY__" placeholder="Ordner mit MP4-Dateien">
+                        </div>
+                        <div id="folderButtons">
+                            <button type="button" class="buttonGhost" onclick="chooseSourceFolder()">Ordner wählen</button>
+                            <button type="submit">Dateien scannen</button>
+                        </div>
+                    </div>
+
+                    <div class="fieldGroup">
+                        <div>
+                            <label for="patternInput">Dateimuster</label>
+                            <input id="patternInput" name="pattern" type="text" value="__PATTERN__" placeholder="*_N_A.MP4">
+                        </div>
+                    </div>
+
+                    <div class="fieldGroup">
+                        <div>
+                            <label for="outdirInput">GPX-Zielordner</label>
+                            <input id="outdirInput" name="outdir" type="text" value="__OUTDIR__" placeholder="Ordner für GPX-Ausgabe">
+                        </div>
+                        <div id="folderButtons">
+                            <button type="button" class="buttonGhost" onclick="chooseTargetFolder()">Zielordner wählen</button>
+                        </div>
+                    </div>
+
+                    <div class="fieldRow">
+                        <div>
+                            <label for="outnameInput">GPX-Dateiname</label>
+                            <input id="outnameInput" name="outname" type="text" value="__OUTNAME__" placeholder="track.gpx">
+                        </div>
+                        <div>
+                            <label for="gpxFileInput">GPX-Datei laden</label>
+                            <input id="gpxFileInput" type="file" accept=".gpx" onchange="loadSelectedGpxFile()">
+                        </div>
+                    </div>
+                </form>
+
+                <div class="buttonRow">
+                    <button id="extractBtn" type="button" onclick="startExtractionJob()">GPX aus MP4 schreiben</button>
+                </div>
+
+                <div id="progressWrap" class="metaBlock progressBlock">
+                    <strong>Fortschritt</strong>
+                    <progress id="extractProgress" max="100" value="0"></progress>
+                    <div id="progressText" class="progressLabel">Bereit.</div>
+                </div>
+            </section>
+
+            <section class="stack">
+                <div>
+                    <h2 class="sectionTitle">Track-Auswahl</h2>
+                    <p class="sectionLead">Zeige einen einzelnen Track oder fasse alle gescannten MP4-Dateien zu einer Gesamtstrecke zusammen.</p>
+                </div>
+                <div class="fieldGroup">
+                    <div>
+                        <label for="fileSelect">Gefundene MP4-Dateien</label>
+                        <select id="fileSelect" size="8">
+                            __FILE_OPTIONS__
+                        </select>
+                    </div>
+                    <div class="fileHint">Die Liste wird nach dem Scannen des Quellordners gefuellt.</div>
+                </div>
+                <div class="buttonRow">
+                    <button type="button" class="buttonGhost" onclick="showSelectedTrack()">Ausgewählten Track zeigen</button>
+                    <button type="button" onclick="showCombinedTrack()">Gesamttrack erzeugen</button>
+                </div>
+            </section>
+
+            <section class="statusBox" id="info">Bereit.</section>
+        </aside>
+
+        <section class="mapPanel">
+            <div class="mapToolbar">
+                <div class="mapToolbarGroup">
+                    <div>
+                        <label for="colorProfileSelect">Farbdarstellung</label>
+                        <select id="colorProfileSelect" onchange="redrawCurrentTrack()">
+                            <option value="default">Standard</option>
+                            <option value="elevation">Profil 1: Hoehe</option>
+                            <option value="workday">Profil 2: Wochentag</option>
+                            <option value="speed">Profil 3: Geschwindigkeit</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mapToolbarGroup">
+                    <label class="toggleWrap" for="showStationsToggle">
+                        <input id="showStationsToggle" type="checkbox" onchange="toggleDailyStations()">
+                        <span>Tagesstationen zeigen</span>
+                    </label>
+                    <button id="fitRouteBtn" type="button" class="buttonGhost" onclick="fitCurrentTrackToMap()">Route maximieren</button>
+                    <button id="fullscreenBtn" type="button" class="buttonGhost" onclick="toggleMapFullscreen()">Vollbild</button>
+                </div>
+            </div>
+
+            <div id="mapWrap">
+                <div id="map"></div>
+            </div>
+
+            <div class="mapDetails">
+                <section class="card">
+                    <h2 id="legendTitle">Legende</h2>
+                    <p id="legendContent">Kein Track geladen.</p>
+                </section>
+
+                <section class="card">
+                    <h2 id="distanceTitle">Strecke</h2>
+                    <p id="distanceSummary">Kein Track geladen.</p>
+                    <div class="tableWrap">
+                        <table id="distanceTable" class="table" style="display:none;">
+                            <thead>
+                                <tr>
+                                    <th>Farbe</th>
+                                    <th>Tag</th>
+                                    <th class="num">km</th>
+                                </tr>
+                            </thead>
+                            <tbody id="distanceTbody"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <h2>Stationen</h2>
+                    <p id="stationSummary">Keine Stationen geladen.</p>
+                    <div id="stationList" class="stationList">
+                        <div class="stationEmpty">Kein Track geladen.</div>
+                    </div>
+                </section>
+            </div>
+        </section>
+    </main>
+</div>
+
+<script>
+window.APP_FILES = __FILES_JSON__;
+</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
