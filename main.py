@@ -152,11 +152,12 @@ def numeric_sort_key(path: Path) -> tuple:
     return (*nums, path.name.lower()) if nums else (math.inf, path.name.lower())
 
 
-def scan_files(directory: str, pattern: str) -> list[Path]:
+def scan_files(directory: str, pattern: str, recursive: bool = True) -> list[Path]:
     base = Path(directory).expanduser().resolve()
     if not base.is_dir():
         raise HTTPException(status_code=400, detail=f"Quellverzeichnis existiert nicht: {base}")
-    files = sorted(base.rglob(pattern), key=numeric_sort_key)
+    search = base.rglob(pattern) if recursive else base.glob(pattern)
+    files = sorted(search, key=numeric_sort_key)
     return [p for p in files if p.is_file() and p.suffix.lower() == ".mp4"]
 
 
@@ -691,6 +692,7 @@ def html_page(
     outname: str = "track.gpx",
     files: list[Path] | None = None,
     message: str = "",
+    recursive: bool = True,
 ) -> str:
     file_options = ""
     if files:
@@ -710,6 +712,7 @@ def html_page(
         .replace("__OUTNAME__", html.escape(outname))
         .replace("__FILE_OPTIONS__", file_options)
         .replace("__FILES_JSON__", files_json)
+        .replace("__RECURSIVE_CHECKED__", "checked" if recursive else "")
     )
 
 
@@ -723,20 +726,29 @@ def index() -> str:
 
 
 @app.get("/scan", response_class=HTMLResponse)
-def scan(directory: str, pattern: str = "*_N_A.MP4", outdir: str = "", outname: str = "track.gpx") -> str:
+def scan(
+    directory: str,
+    pattern: str = "*_N_A.MP4",
+    outdir: str = "",
+    outname: str = "track.gpx",
+    recursive: str = "1",
+) -> str:
     global DEFAULT_SOURCE_DIR, DEFAULT_TARGET_DIR
+
+    do_recursive = recursive not in ("0", "false", "")
 
     if not directory:
         directory = choose_folder("MP4-Quellordner auswählen", DEFAULT_SOURCE_DIR or str(Path.cwd()))
     if not directory:
-        return html_page(DEFAULT_SOURCE_DIR, pattern, DEFAULT_TARGET_DIR, outname, message="Kein Quellordner ausgewählt.")
+        return html_page(DEFAULT_SOURCE_DIR, pattern, DEFAULT_TARGET_DIR, outname, message="Kein Quellordner ausgewählt.", recursive=do_recursive)
 
     DEFAULT_SOURCE_DIR = directory
     if outdir:
         DEFAULT_TARGET_DIR = outdir
 
-    files = scan_files(directory, pattern)
-    return html_page(directory, pattern, outdir, outname, files, f"{len(files)} MP4-Dateien gefunden.")
+    files = scan_files(directory, pattern, recursive=do_recursive)
+    label = "(inkl. Unterordner)" if do_recursive else "(nur Hauptordner)"
+    return html_page(directory, pattern, outdir, outname, files, f"{len(files)} MP4-Dateien gefunden {label}.", recursive=do_recursive)
 
 
 @app.get("/api/track")

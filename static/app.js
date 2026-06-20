@@ -879,17 +879,58 @@ function toggleDailyStations() {
     redrawCurrentTrack();
 }
 
+const PHOTOS_STORAGE_KEY = 'gpsTrackPhotos';
+
+function savePhotosToStorage(photos) {
+    try {
+        localStorage.setItem(PHOTOS_STORAGE_KEY, JSON.stringify(photos));
+    } catch {
+        // quota exceeded or private-browsing restriction — fail silently
+    }
+}
+
+function loadPhotosFromStorage() {
+    try {
+        const raw = localStorage.getItem(PHOTOS_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
 function clearPhotoMarkers() {
     if (photoLayer) {
         map.removeLayer(photoLayer);
         photoLayer = null;
     }
+    savePhotosToStorage([]);
     setInfo('Fotos entfernt.');
 }
 
-function placePhotoMarkers(photos) {
-    clearPhotoMarkers();
+function placePhotoMarkers(photos, { persist = false } = {}) {
+    if (photoLayer) {
+        map.removeLayer(photoLayer);
+        photoLayer = null;
+    }
     if (!Array.isArray(photos) || photos.length === 0) return;
+
+    if (persist) {
+        // Merge new photos with any already persisted ones (deduplicate by filename+coords).
+        const existing = loadPhotosFromStorage();
+        const merged = [...existing];
+        for (const p of photos) {
+            const duplicate = merged.some(
+                e => e.filename === p.filename &&
+                     Math.abs(e.lat - p.lat) < 1e-7 &&
+                     Math.abs(e.lon - p.lon) < 1e-7
+            );
+            if (!duplicate) merged.push(p);
+        }
+        savePhotosToStorage(merged);
+        photos = merged;
+    }
 
     photoLayer = L.layerGroup().addTo(map);
 
@@ -933,11 +974,12 @@ async function loadPhotos() {
             return;
         }
         const data = await response.json();
-        placePhotoMarkers(data.photos || []);
+        placePhotoMarkers(data.photos || [], { persist: true });
+        const total = loadPhotosFromStorage().length;
         const placed = data.count || 0;
         const skipped = data.skipped || 0;
         const skippedNote = skipped > 0 ? ` (${skipped} ohne GPS-Daten uebersprungen)` : '';
-        setInfo(`${placed} Foto${placed === 1 ? '' : 's'} auf der Karte platziert${skippedNote}.`);
+        setInfo(`${placed} Foto${placed === 1 ? '' : 's'} hinzugefuegt${skippedNote}. Gesamt: ${total}.`);
     } catch (err) {
         setInfo('Fehler beim Foto-Upload: ' + String(err));
     } finally {
@@ -954,6 +996,12 @@ updateFullscreenButton();
 clearLegend('Kein Track geladen.');
 updateDistanceTable([], 'Track', null, null);
 renderStationPanel([], []);
+
+// Restore persisted photos from a previous session.
+const _persistedPhotos = loadPhotosFromStorage();
+if (_persistedPhotos.length > 0) {
+    placePhotoMarkers(_persistedPhotos);
+}
 
 Object.assign(window, {
     chooseSourceFolder,

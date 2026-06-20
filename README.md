@@ -30,6 +30,7 @@ Vantrue (and many other dashcam models) embed GPS telemetry directly in the MP4 
 | Name persistence | Station names survive page reloads via `localStorage` and round-trip through GPX waypoints on export/import. |
 | GPX export | Writes a valid GPX 1.1 file with track points, optional elevation, speed, and station waypoints. |
 | GPX import | Loads any GPX file — supports `<trk>` track points, `<rte>` route points, and `<wpt>` waypoint-only files. |
+| Photo pinning | Upload GPS-tagged photos (JPEG, HEIC, …). Each photo is pinned on the map as a thumbnail at its capture location. Click a thumbnail to see a larger preview and the filename. |
 | Folder chooser | Native OS folder picker dialog (requires `tkinter`). |
 | LAN mode | Pass `--lan` at startup to bind to `0.0.0.0:8000` for access from other devices on the network. |
 
@@ -52,6 +53,7 @@ Vantrue (and many other dashcam models) embed GPS telemetry directly in the MP4 
 | `fastapi` | 0.136+ | HTTP server and API routing. |
 | `uvicorn` | 0.49+ | ASGI server that runs FastAPI. |
 | `pydantic` | (installed with FastAPI) | Request body validation. |
+| `Pillow` | 12.0+ | Server-side JPEG thumbnail generation and EXIF rotation correction for photo pinning. |
 
 ### Browser (CDN, no install required)
 
@@ -89,7 +91,7 @@ source .venv/bin/activate          # macOS / Linux
 # .venv\Scripts\activate.bat       # Windows
 
 # 3. Install Python dependencies
-pip install fastapi uvicorn
+pip install fastapi uvicorn Pillow
 
 # 4. Install ExifTool
 #    macOS:
@@ -144,3 +146,15 @@ Click the **GPX-Datei laden** file picker and select a `.gpx` file. The track re
 | **Route maximieren** | Fit the current track to the map viewport. |
 | **Vollbild** | Enter or exit fullscreen. |
 | **Farbdarstellung** | Switch colour profile: standard, elevation, workday, or speed. |
+
+---
+
+### Pin photos on the map
+
+1. Click **Fotos laden** in the map toolbar and select one or more GPS-tagged photos (JPEG, HEIC, PNG, …).
+2. The server reads each photo's `GPSLatitude` / `GPSLongitude` EXIF field using ExifTool, generates a 120 × 120 px thumbnail (with automatic EXIF rotation correction), and returns the results.
+3. A square thumbnail marker is placed on the map at the exact capture location. Click any thumbnail to open a popup showing a larger preview and the filename.
+4. Photos without GPS data are silently skipped. The status bar reports how many were placed and how many were skipped.
+5. Click **Fotos entfernen** to clear all photo markers from the map.
+
+> **Note:** ExifTool must be installed and on `PATH` for GPS extraction to work (see [Dependencies](#dependencies)).
