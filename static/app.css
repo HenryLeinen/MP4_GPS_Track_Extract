@@ -193,7 +193,7 @@ button:disabled {
 }
 
 .buttonRow,
-#folderButtons,
+.folderButtons,
 .inlineActions {
     display: flex;
     gap: 10px;
@@ -201,7 +201,7 @@ button:disabled {
 }
 
 .buttonRow > *,
-#folderButtons > *,
+.folderButtons > *,
 .inlineActions > * {
     flex: 1 1 160px;
 }
